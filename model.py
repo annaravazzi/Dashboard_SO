@@ -34,24 +34,23 @@ class CtypesFunctions:
         List all entries in a directory.
         """
         entries = []
-        dir_ptr = self.opendir(path.encode("utf-8"))
+        dir_ptr = self.opendir(path.encode("utf-8"))    # Pointer to the directory stream
         if not dir_ptr:
             return []
         try:
             while True:            
-                entry_ptr = self.readdir(dir_ptr)
+                entry_ptr = self.readdir(dir_ptr)   # Read the next directory entry
                 if not entry_ptr:
                     break
 
                 entry = entry_ptr.contents
                 # Extract filename
                 name_bytes = bytes(entry.d_name)
-                null_pos = name_bytes.find(b'\x00') # null terminator
-                if null_pos != -1:  # if null terminator is found
-                    name_bytes = name_bytes[:null_pos]
-                name = name_bytes.decode("utf-8", errors="replace")
-                
-                if name not in (".", ".."):
+                null_pos = name_bytes.find(b'\x00') # find null terminator
+                if null_pos != -1:
+                    name_bytes = name_bytes[:null_pos]  # Truncate name at null terminator
+                name = name_bytes.decode("utf-8", errors="replace")     # Decode bytes to string, replacing invalid characters
+                if name not in (".", ".."): # Exclude current and parent directory entries
                     entries.append(name)
         finally:
             self.closedir(dir_ptr)
@@ -60,8 +59,9 @@ class CtypesFunctions:
 
 class Model:
     """
-    This class is responsible for managing the process listing and statistics.
-    It uses a separate thread to continuously gather data and communicate with the main thread.
+    This class is responsible for managing the data gathering for the system dashboard.
+    It retrieves process information, specific process information, and general statistics.
+    It uses separate threads to continuously gather data and communicate with the main thread.
     """
     def __init__(self, process_queue, specific_processes_queue, specific_processes_req_queue, general_stats_queue=None):
         self.ctypes_functions = CtypesFunctions()
@@ -70,14 +70,17 @@ class Model:
         self._processes_thread = None
         self._specific_processes_thread_running = False
         self._specific_processes_thread = None
+        # self._general_stats_thread_running = False
+        # self._general_stats_thread = None
         # Queues (to communicate with the main thread)
         self.process_queue = process_queue
         self.specific_processes_queue = specific_processes_queue
         self.specific_processes_req_queue = specific_processes_req_queue
-        self.general_stats_queue = general_stats_queue
+        # self.general_stats_queue = general_stats_queue
 
-        self.processes_list = []
+        self.processes_dict = {}
         self.specific_processes_dict = {}
+        # self.general_stats_list = []
 
         # To calculate CPU usage
         self.CLK_TCK_PS = 100  # Default value for clock ticks per second in Linux
@@ -115,44 +118,56 @@ class Model:
         if self._specific_processes_thread:
             self._specific_processes_thread.join()
 
-    def _list_specific_processes(self):
-        """
-        Continuously list specific processes in a separate thread.
-        """
-        while self._specific_processes_thread_running:
-            while not self.specific_processes_req_queue.empty():
-                pid = self.specific_processes_req_queue.get()
-                print(f"Received PID: {pid}")
-                # If the PID is already in the dictionary, remove it (process terminated/not being monitored)
-                # If the PID is not in the dictionary, add it (process started being monitored)
-                try:
-                    del self.specific_processes_dict[pid]
-                except KeyError:
-                    self.specific_processes_dict[pid] = None
-
-            # Return the data for the specific processes currently being monitored
-            self.specific_processes_queue.put(self.get_specific_processes_data())
-            time.sleep(0.1)
+    def start_general_stats_thread(self):
+        pass
+    
+    def stop_general_stats_thread(self):
+        pass
 
     def _list_processes(self):
         """
-        Continuously list processes in a separate thread.
+        Continuously list general processes in a separate thread.
         """
         while self._processes_thread_running:
-            self.process_queue.put(self.get_processes_data())
-            time.sleep(0.1)
+            self.process_queue.put(self._get_processes_data())
+            time.sleep(1)
 
-    def get_processes_data(self):
+    def _list_specific_processes(self):
         """
-        List all processes data on the system.
+        List data for specific processes in a separate thread.
+        This method continuously checks the specific_processes_req_queue for new PIDs to start/stop monitoring.
         """
-        self.processes_list = []
+        while self._specific_processes_thread_running:
+            while not self.specific_processes_req_queue.empty():
+                pid, req = self.specific_processes_req_queue.get()
+                print(f"Received request for PID {pid}: {req}")
+                if req == 'add':
+                    self.specific_processes_dict[pid] = None  # Add the PID to the dictionary to start monitoring
+                elif req == 'remove':
+                    try:
+                        del self.specific_processes_dict[pid]  # Remove the PID from the dictionary to stop monitoring
+                    except KeyError:
+                        pass
+
+            # Return the data for the specific processes currently being monitored
+            self.specific_processes_queue.put(self._get_specific_processes_data())
+            time.sleep(1)
+
+    def _list_general_stats(self):
+        pass
+
+    def _get_processes_data(self):
+        """
+        List all processes general data on the system.
+        """
+        self.processes_dict = {}
         # List all entries in the /proc directory
         entries = self.ctypes_functions.list_directory("/proc")
         for entry in entries:
             if entry.isdigit(): # Check if the entry is a digit (PID)
                 try:
                     with open(f"/proc/{entry}/status", "r") as f:
+                        pid = int(entry)
                         for line in f:
                             if line.startswith("Name:"):
                                 name = line.split(":")[1].strip()
@@ -169,17 +184,20 @@ class Model:
                                 userid = userid.split()[0]
                                 username = self._uid_to_username(userid)
 
-                    self.processes_list.append((int(entry), name, username, memory, self._get_cpu_usage_process(int(entry)), status))
+                    self.processes_dict[pid] = (pid, name, username, memory, self._get_cpu_usage_process(int(entry)), status)
                 except FileNotFoundError:
-                    # Process may have terminated
+                    # Process have terminated, it won't be included in the list
                     continue
-        return self.processes_list
+        return self.processes_dict
     
-    def get_specific_processes_data(self):
+    #TODO: MORE DATA
+    def _get_specific_processes_data(self):
         """
         List specific processes data on the system.
         """
-        for pid in self.specific_processes_dict:
+        pids = list(self.specific_processes_dict.keys())
+        self.specific_processes_dict = {}
+        for pid in pids:
             try:
                 with open(f"/proc/{pid}/status", "r") as f:
                     for line in f:
@@ -200,11 +218,15 @@ class Model:
 
                 self.specific_processes_dict[pid] = (int(pid), name, username, memory, self._get_cpu_usage_process(int(pid)), status)
             except FileNotFoundError:
-                # Process may have terminated
+                # Process have terminated, it won't be included in the list
                 continue
 
         # Return the data for the specific processes currently being monitored
+        print(f"Specific processes data: {self.specific_processes_dict}")
         return self.specific_processes_dict
+    
+    def _get_general_stats_data(self):
+        pass
 
     def _uid_to_username(self, uid):
         """
@@ -213,11 +235,10 @@ class Model:
         try:
             with open(f"/etc/passwd", "r") as f:
                 for line in f:
-
                     if str(uid) in line:
                         return line.split(":")[0]
-            return str(uid)
-        except:
+            return str(uid)  # If UID not found, return UID as string
+        except FileNotFoundError:
             return str(uid)
     
     def _get_process_status(self, status):
@@ -259,26 +280,4 @@ class Model:
             return 0.0
         
         cpu_usage = (delta_cpu_time / elapsed_time) * 100.0
-        return round(cpu_usage, 1)
-
-        # try:
-        #     with open(f"/proc/uptime", "r") as f:
-        #         uptime = float(f.read().split()[0])
-        # except FileNotFoundError:
-        #     return 0.0
-        
-        # try:
-        #     with open(f"/proc/{pid}/stat", "r") as f:
-        #         data = f.read().split()
-        #         utime = int(data[13])  # Time the process spent in user mode
-        #         stime = int(data[14])  # Time the process spent in kernel mode
-        #         total_time = (utime + stime)/self.CLK_TCK_PS # Total time spent in user and kernel mode (in seconds)
-        #         start_time = int(data[21])  # Time the process started after system boot
-        #         time_in_seconds = uptime - (start_time / self.CLK_TCK_PS)   # Convert jiffies to seconds
-        #         # Prevent division by zero
-        #         if time_in_seconds <= 0:
-        #             return 0.0
-                
-        #         return (total_time / time_in_seconds) * 100
-        # except FileNotFoundError:
-        #     return 0
+        return round(cpu_usage, 2)

@@ -1,31 +1,44 @@
 import tkinter as tk
 import ttkbootstrap as ttk
+from tkinter import messagebox
 
 class View:
+    """
+    View class to create the GUI for the operating system dashboard separated from the data fetching model.
+    The view displays general stats data from the OS and the list of processes, and allows the user to see details of a specific process.
+    """
     def __init__ (self, specific_process_req_queue):
         # Initialize the main window
         self.root = ttk.Window(themename="darkly")
         self.root.title("Operating System Dashboard")
         self.root.geometry("800x600")
 
-        # Create a notebook (tabbed interface)
+        # Create a notebook (for tabbed interface)
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill='both', expand=True)
 
         # Dictionary to hold general process data {pid: [pid, name, user, memory, cpu, status]}
         self.process_data_dict = {}
+        # Dictionary to hold specific process data {pid: [pid, name, user, memory, cpu, status]}
+        self.specific_process_data_dict = {}
+        # List of general stats data (CPU usage, memory usage, etc.)
+        # self.general_stats_data = []
+        # Dict to hold the opened tabs for specific processes {pid: tab_id}
+        self.processes_opened_tabs = {}
 
         # Queue for specific process requests
         self.specific_process_req_queue = specific_process_req_queue
 
-        # Create main tab
+        # Create process list tab
         self.create_process_list_tab()
+        # Create general stats tab
+        # self.create_general_stats_tab()
 
     def create_process_list_tab(self):
         """
         Create a tab for displaying the process list.
         """
-        # Create frame for process list tab
+        # Create frame
         process_list_tab = ttk.Frame(self.notebook)
         self.notebook.add(process_list_tab, text="All Processes")
 
@@ -60,37 +73,60 @@ class View:
         process_list_tab.grid_rowconfigure(0, weight=1)
 
         # Bind double click event (to open process details)
-        self.process_list_tree.bind('<Double-1>', self.on_double_click)
+        self.process_list_tree.bind('<Double-1>', self.create_specific_process_tab)
+    
+    def create_general_stats_tab(self):
+        pass
 
-    def update_data(self, processes_data, specific_process_data=None):
+    def update_data(self, processes_data, specific_process_data, general_stats_data=None):
         """
-        Update the process data dictionary and refresh the process list views.
+        Update all data in the view.
+        This method is called periodically in the controller to refresh the data displayed in the GUI.
         """
-        self.process_data_dict = {process[0]: process for process in processes_data}
+        self.process_data_dict = processes_data
+        self.specific_process_data_dict = specific_process_data
+        # self.general_stats_data = general_stats_data
 
-        # Update the process list view (main tab) with the new data
-        process_data_list = list(self.process_data_dict.values())
-        self.update_process_list_view(process_data_list)
+        # process_data_list = list(self.process_data_dict.values())
+        # self.update_process_list_view(process_data_list)
 
-        if specific_process_data:
-            # Update the opened tabs for each process
-            for tab in self.notebook.tabs():
-                tab_id = self.notebook.tab(tab, "text")
-                if tab_id.startswith("Process "):
-                    process_id = int(tab_id.split(" ")[1])
-                    if process_id in specific_process_data:
-                        # Update the tab with the new process data
-                        self.update_specific_process_tab(self.notebook.nametowidget(tab), specific_process_data[process_id])
-                    else:
-                        self.close_tab(tab)  # Close the tab if the process is no longer available
+        # Update the tabs
+        if self.process_data_dict:
+            self.update_process_list_view(list(self.process_data_dict.values()))
+
+        # Check all process-specific tabs
+        opened_tabs = self.processes_opened_tabs.copy()
+        for pid, tab_id in opened_tabs.items():
+            if pid in self.specific_process_data_dict:  # Check if there's data for the process
+                # Update the tab with the new process data
+                self.update_specific_process_tab(tab_id, self.specific_process_data_dict[pid])
+            else:
+                if self.specific_process_req_queue.empty(): # Check if there's no data because the new request wasn't received yet
+                    self.close_tab(tab_id, pid, req=False)
+                # Raise an error if the process is not available anymore
+                # self.error_box(tab_id, "Process " + str(pid) + "doesn't exist anymore", pid)
+
+
+        # if specific_process_data:
+        #     # Update the opened tabs for each process
+        #     for tab in self.notebook.tabs():
+        #         tab_id = self.notebook.tab(tab, "text")
+        #         if tab_id.startswith("Process "):
+        #             process_id = int(tab_id.split(" ")[1])
+        #             if process_id in specific_process_data:
+        #                 # Update the tab with the new process data
+        #                 self.update_specific_process_tab(self.notebook.nametowidget(tab), specific_process_data[process_id])
+        #             else:
+        #                 self.close_tab(tab)  # Close the tab if the process is no longer available
 
     def update_process_list_view(self, process_data):
         """
-        Update the treeview with the current process data.
+        Update the general process list tab with the current data.
         """
 
+        # To preserve the scroll position and selected item
         current_position = self.process_list_tree.yview()[0]
-        selected_item = self.process_list_tree.focus()  # Get the focused item's ID
+        selected_item = self.process_list_tree.focus()
         selected_text = self.process_list_tree.item(selected_item) if selected_item else None
 
         # Clear existing data
@@ -108,10 +144,9 @@ class View:
                 
         # Restore the scroll position
         self.process_list_tree.yview_moveto(current_position)
-                
-                
 
-    def update_specific_process_tab(self, tab, process_data):
+    # TODO: add more specific data
+    def update_specific_process_tab(self, tab_id, process_data):
         """
         Update the specific process tab with new data.
         """
@@ -119,45 +154,56 @@ class View:
         # for widget in tab.winfo_children():
         #     widget.destroy()
 
+        tab = self.notebook.nametowidget(tab_id)
         for widget in tab.winfo_children():
             if isinstance(widget, tk.Text):
                 widget.destroy()
 
         # Add process details
-        details_text = tk.Text(tab, wrap=tk.WORD)
-        details_text.insert(tk.END, f"Name: {process_data[1]}\n"
-                                      f"User: {process_data[2]}\n"
-                                      f"Memory: {process_data[3]}\n"
-                                      f"CPU: {process_data[4]}\n"
-                                      f"Status: {process_data[5]}")
-        details_text.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
-        details_text.config(state=tk.DISABLED)
+        if process_data:
+            details_text = tk.Text(tab, wrap=tk.WORD)
+            details_text.insert(tk.END, f"Name: {process_data[1]}\n"
+                                        f"User: {process_data[2]}\n"
+                                        f"Memory: {process_data[3]}\n"
+                                        f"CPU: {process_data[4]}\n"
+                                        f"Status: {process_data[5]}")
+            details_text.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
+            details_text.config(state=tk.DISABLED)
+        else:
+            # If the process is not available anymore
+            old_pid = self.notebook.tab(tab, ('text')).split(" ")[1]
+            self.close_tab(tab, old_pid, req=False)
+            # self.error_box(tab, "Process " + str(old_pid) + "doesn't exist anymore", old_pid)
 
-        # # Add close button
-        # close_btn = ttk.Button(tab, text="Close Tab", command=lambda: self.close_tab(tab))
-        # close_btn.pack(side=tk.BOTTOM, pady=10)
-
-
-    def on_double_click(self, event):
+    def create_specific_process_tab(self, event):
         """
-        Handle double-click event on the process list treeview.
+        Handle double-click event on the process list.
         Create a new tab with process details.
         """
+        # Get the selected process
         selected_process = self.process_list_tree.selection()
         if not selected_process:
             return
         process = self.process_list_tree.item(selected_process)
         process_info = process['values']
 
+        if process_info and process_info[0] in self.processes_opened_tabs:
+            # If the tab already exists, select it
+            # tab = self.processes_opened_tabs[process_info[0]]
+            # print(tab)
+            self.notebook.select(self.processes_opened_tabs[process_info[0]])
+            return
+        
         # Create a new tab for process details
         details_tab = ttk.Frame(self.notebook)
+        self.processes_opened_tabs[process_info[0]] = details_tab  # Store the tab for later updates
         self.notebook.add(details_tab, text=f"Process {process_info[0]}")
         self.notebook.select(details_tab)
 
         label = tk.Label(details_tab, text=f"Details for Process ID: {process_info[0]}")
         label.pack(pady=10)
 
-        self.specific_process_req_queue.put(process_info[0])  # Request specific process details
+        self.specific_process_req_queue.put((process_info[0], 'add'))  # Request specific process details
 
         # self.update_specific_process_tab(details_tab, process_info)
 
@@ -172,18 +218,29 @@ class View:
         # details_text.config(state=tk.DISABLED)
 
         # Add close button
-        close_btn = ttk.Button(details_tab, text="Close Tab", command=lambda: self.close_tab(details_tab))
+        close_btn = ttk.Button(details_tab, text="Close Tab", command=lambda: self.close_tab(details_tab, process_info[0]))
         close_btn.pack(side=tk.BOTTOM, pady=10)
 
-        
-
-    def close_tab(self, tab):
+    def close_tab(self, tab, pid, req=True):
         """
         Close the specified tab.
         """
-        pid = int(self.notebook.tab(tab, "text").split(" ")[1])
-        self.specific_process_req_queue.put(pid)  # Request to close the specific process
-        self.notebook.forget(tab)
+        print(f"Closing tab for PID: {pid}")
+        if req:
+            self.specific_process_req_queue.put((pid, 'remove'))
+        self.processes_opened_tabs.pop(pid, None)  # Remove the tab from the dictionary
+        try:
+            self.notebook.forget(tab)
+        except tk.TclError:
+            # If the tab is already closed or doesn't exist
+            return
+    
+    # def error_box(self, tab, message, pid):
+    #     """
+    #     Show an error message box.
+    #     """
+    #     messagebox.showerror("Error", message)
+    #     self.close_tab(tab, pid)
 
     def run(self):
         """
@@ -196,6 +253,3 @@ class View:
     #     Close the Tkinter window.
     #     """
     #     self.root.destroy()
-    
-if __name__ == "__main__":
-    pass
