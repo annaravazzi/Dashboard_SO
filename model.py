@@ -85,6 +85,7 @@ class Model:
         # To calculate CPU usage
         self.CLK_TCK_PS = 100  # Default value for clock ticks per second in Linux
         self.prev_proc_data = {}
+        self.prev_thrd_data = {}
 
     def start_processes_thread(self):
         """
@@ -140,9 +141,8 @@ class Model:
         while self._specific_processes_thread_running:
             while not self.specific_processes_req_queue.empty():
                 pid, req = self.specific_processes_req_queue.get()
-                print(f"Received request for PID {pid}: {req}")
                 if req == 'add':
-                    self.specific_processes_dict[pid] = None  # Add the PID to the dictionary to start monitoring
+                    self.specific_processes_dict[pid] = ()   # Add the PID to the dictionary to start monitoring
                 elif req == 'remove':
                     try:
                         del self.specific_processes_dict[pid]  # Remove the PID from the dictionary to stop monitoring
@@ -175,22 +175,25 @@ class Model:
                                 status = line.split(":")[1].strip().split()[0]
                                 status = self._get_process_status(status)
                             elif line.startswith("VmRSS:"):
-                                memory = line.split(":")[1].strip()
-                                memory = memory.split()[0]
-                                memory_num = float(memory) / 1024  if int(memory) > 1024 else int(memory)
-                                memory = f"{memory_num:.2f} MB" if int(memory) > 1024 else str(memory_num) + " KB"
+                                memory = line.split(":")[1].strip().split()[0]
+                                memory = self._kb_to_mb(int(memory))  # Convert memory to MB or KB
                             elif line.startswith("Uid:"):
                                 userid = line.split(":")[1]
                                 userid = userid.split()[0]
                                 username = self._uid_to_username(userid)
 
-                    self.processes_dict[pid] = (pid, name, username, memory, self._get_cpu_usage_process(int(entry)), status)
+                    with open(f"/proc/{entry}/stat", "r") as f:
+                        data = f.read().split()
+                        # Get total time spent in user and kernel mode (in jiffies)
+                        total_time = int(data[13]) + int(data[14])
+                        cpu_usage = self._get_cpu_usage_process(int(entry), total_time)
+
+                    self.processes_dict[pid] = (pid, name, username, memory, cpu_usage, status)
                 except FileNotFoundError:
                     # Process have terminated, it won't be included in the list
                     continue
         return self.processes_dict
     
-    #TODO: MORE DATA
     def _get_specific_processes_data(self):
         """
         List specific processes data on the system.
@@ -207,22 +210,54 @@ class Model:
                             status = line.split(":")[1].strip().split()[0]
                             status = self._get_process_status(status)
                         elif line.startswith("VmRSS:"):
-                            memory = line.split(":")[1].strip()
-                            memory = memory.split()[0]
-                            memory_num = float(memory) / 1024  if int(memory) > 1024 else int(memory)
-                            memory = f"{memory_num:.2f} MB" if int(memory) > 1024 else str(memory_num) + " KB"
+                            memory = line.split(":")[1].strip().split()[0]
+                            memory = self._kb_to_mb(int(memory))  # Convert memory to MB or KB
                         elif line.startswith("Uid:"):
                             userid = line.split(":")[1]
                             userid = userid.split()[0]
                             username = self._uid_to_username(userid)
+                        elif line.startswith("Threads:"):
+                            num_threads = line.split(":")[1].strip()
+                            num_threads = int(num_threads) if num_threads.isdigit() else 0
+                        elif line.startswith("VmSize:"):
+                            vmsize = line.split(":")[1].strip().split()[0]  # Get VmSize in KB
+                            vmsize = self._kb_to_mb(int(vmsize))  # Convert VmSize to MB or KB
+                        elif line.startswith("VmExe:"):
+                            textsize = line.split(":")[1].strip().split()[0]  # Get VmExe in KB
+                            textsize = self._kb_to_mb(int(textsize))  # Convert VmExe to MB or KB
+                        elif line.startswith("VmData:"):
+                            datasize = line.split(":")[1].strip().split()[0]
+                            datasize = self._kb_to_mb(int(datasize))  # Convert VmData to MB or KB
+                        elif line.startswith("VmStk:"):
+                            stacksize = line.split(":")[1].strip().split()[0]
+                            stacksize = self._kb_to_mb(int(stacksize))
+                    
+                with open(f"/proc/{pid}/statm", "r") as f:
+                    data = f.read().split()
+                    vmsize_pages, mem_pages = data[0], data[1]  # VmSize and VmRSS in pages
+                
+                with open(f"/proc/{pid}/stat", "r") as f:
+                    data = f.read().split()
+                    total_time = int(data[13]) + int(data[14])  # Total time spent in user and kernel mode (in jiffies)
+                    cpu_usage = self._get_cpu_usage_process(int(pid), total_time)
+                    priority = int(data[17])
+                    nice = int(data[18])
+                    start_time = int(data[21]) / self.CLK_TCK_PS  # Start time in seconds (since system boot)
+                    run_time = time.time() - start_time  # Runtime in seconds
+                    run_time = time.strftime("%H:%M:%S", time.gmtime(run_time))  # Format runtime as HH:MM:SS
 
-                self.specific_processes_dict[pid] = (int(pid), name, username, memory, self._get_cpu_usage_process(int(pid)), status)
+                threads = self._get_threads_data(pid)
+                
+                self.specific_processes_dict[pid] = (int(pid), name, username, cpu_usage, status, num_threads, priority, nice, run_time,
+                                                        memory, mem_pages, vmsize, vmsize_pages, textsize, datasize, stacksize,
+                                                        threads)
             except FileNotFoundError:
-                # Process have terminated, it won't be included in the list
+                # Process have terminated, data will be null
+                self.specific_processes_dict[pid] = (None, None, None, None, None, None, None, None, None,
+                                                        None, None, None, None, None, None, None, None)
                 continue
 
         # Return the data for the specific processes currently being monitored
-        print(f"Specific processes data: {self.specific_processes_dict}")
         return self.specific_processes_dict
     
     def _get_general_stats_data(self):
@@ -253,27 +288,43 @@ class Model:
             "Z": "Zombie"
         }
         return status_map.get(status, "Unknown")
+
+    def _kb_to_mb(self, kb):
+        """
+        Convert kilobytes to megabytes.
+        """
+        if kb > 1024:
+            return f"{kb / 1024:.2f} MB"
+        else:
+            return f"{kb} KB"
     
-    def _get_cpu_usage_process(self, pid):
+    def _get_cpu_usage_process(self, id, total_time, is_thread=False):
         """
         Get (instantaneous) CPU usage for a specific process.
         """
-        try:
-            with open(f"/proc/{pid}/stat", "r") as f:
-                data = f.read().split()
-                utime = int(data[13])  # Time the process spent in user mode
-                stime = int(data[14])  # Time the process spent in kernel mode
-                total_time = utime + stime  # Total time spent in user and kernel mode (in jiffies)
-        except:
-            return 0.0
+        # try:
+        #     with open(f"/proc/{pid}/stat", "r") as f:
+        #         data = f.read().split()
+        #         utime = int(data[13])  # Time the process spent in user mode
+        #         stime = int(data[14])  # Time the process spent in kernel mode
+        #         total_time = utime + stime  # Total time spent in user and kernel mode (in jiffies)
+        # except:
+        #     return 0.0
         
         current_time = time.time()
-        prev_total_time, prev_time = self.prev_proc_data.get(pid, (0, current_time))
+        if is_thread:
+            # For threads, we use the previous thread data
+            prev_total_time, prev_time = self.prev_thrd_data.get(id, (0, current_time))
+        else:
+            prev_total_time, prev_time = self.prev_proc_data.get(id, (0, current_time))
 
         delta_cpu_time = (total_time - prev_total_time)/self.CLK_TCK_PS  # Variation in CPU time since last check (in seconds)
         elapsed_time = current_time - prev_time     # Elapsed time since last check (in seconds)
 
-        self.prev_proc_data.update({pid: (total_time, current_time)})   # Update previous data for the process
+        if is_thread:
+            self.prev_thrd_data.update({id: (total_time, current_time)})
+        else:
+            self.prev_proc_data.update({id: (total_time, current_time)})   # Update previous data for the process
 
         # Prevent division by zero
         if elapsed_time <= 0:
@@ -281,3 +332,37 @@ class Model:
         
         cpu_usage = (delta_cpu_time / elapsed_time) * 100.0
         return round(cpu_usage, 2)
+    
+    def _get_threads_data(self, pid):
+        """
+        Get threads data for a specific process.
+        """
+        threads = []
+        try:
+            entries = self.ctypes_functions.list_directory(f"/proc/{pid}/task")
+            for entry in entries:
+                if entry.isdigit():  # Check if the entry is a digit (TID)
+                    tid = int(entry)
+                    with open(f"/proc/{pid}/task/{tid}/status", "r") as f:
+                        for line in f:
+                            if line.startswith("Name:"):
+                                name = line.split(":")[1].strip()
+                            elif line.startswith("State:"):
+                                status = line.split(":")[1].strip().split()[0]
+                                status = self._get_process_status(status)
+                            elif line.startswith("Uid:"):
+                                userid = line.split(":")[1].split()[0]
+                                username = self._uid_to_username(userid)
+                            elif line.startswith("VmRSS:"):
+                                memory = line.split(":")[1].strip().split()[0]
+                                memory = self._kb_to_mb(int(memory))  # Convert memory to MB or KB
+                    
+                    with open(f"/proc/{pid}/task/{tid}/stat", "r") as f:
+                        data = f.read().split()
+                        total_time = int(data[13]) + int(data[14])
+                        cpu_usage = self._get_cpu_usage_process(tid, total_time, is_thread=True)
+
+                    threads.append((tid, name, username, memory, cpu_usage, status))
+        except FileNotFoundError:
+            pass
+        return threads
