@@ -342,12 +342,15 @@ class View:
             self.general_stats_treeview.delete(item)
 
         # Atualizar a tabela de uso de CPU
-        self.cpu_usage_treeview.insert('', tk.END, values=('Total CPU', f"{general_data[6][0][1]:.2f}%", self.plot_graph_string(100, general_data[6][0][1])),
+        total_cpu_usage = general_data[6][0][1]
+        cores_cpu_usage = general_data[6][1:]
+        self.cpu_usage_treeview.insert('', tk.END, values=(('▾' if self.cpu_usage_expanded else '▸') + '  Total CPU', 
+                                                           f"{total_cpu_usage:.2f}%", self.plot_graph_string(100, total_cpu_usage)),
                                        tags=("evenrow",))
         # Adicionar uso de CPU por núcleo
         if self.cpu_usage_expanded:
-            for idx, usage in enumerate(general_data[6][1:]):
-                self.cpu_usage_treeview.insert('', tk.END, values=(f"    Core {idx}", f"    {usage[1]:.2f}%", self.plot_graph_string(100, usage[1])),
+            for idx, usage in enumerate(cores_cpu_usage):
+                self.cpu_usage_treeview.insert('', tk.END, values=(f"        Core {idx}", f"    {usage[1]:.2f}%", self.plot_graph_string(100, usage[1])),
                                                tags=("oddrow" if idx % 2 == 0 else "evenrow",))
         
         self.cpu_usage_treeview.pack(fill=tk.BOTH, expand=True)
