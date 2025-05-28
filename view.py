@@ -227,7 +227,7 @@ class View:
         thr_label_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
         threads_treeview = ttk.Treeview(thr_label_frame,columns=('TID', 'Name', 'User', 'Mem', 'CPU', 'State'), 
-                                                        show='headings', bootstyle='DARK')
+                                                        show='headings', bootstyle='DARK', height=28)
         threads_treeview.heading('TID', text='TID', anchor='w')
         threads_treeview.heading('Name', text='Name', anchor='w')
         threads_treeview.heading('User', text='User', anchor='w')
@@ -316,7 +316,9 @@ class View:
 
         # Inserir novos dados na treeview
         for idx, process in enumerate(process_data):
-            self.process_list_tree.insert('', tk.END, values=process, tags=("evenrow" if idx % 2 == 0 else "oddrow",))
+            self.process_list_tree.insert('', tk.END, values=(process[0], process[1], process[2], process[3], 
+                                                              process[4], f"{process[5]:.2f}%", process[6]),
+                                          tags=("evenrow" if idx % 2 == 0 else "oddrow",))
             # Se o processo selecionado for o mesmo que o texto selecionado, manter a seleção
             if selected_text and process[0] == selected_text['values'][0]:
                 self.process_list_tree.selection_set(self.process_list_tree.get_children()[idx])
@@ -426,7 +428,7 @@ class View:
         # Inserir novos dados na treeview de threads
         for idx, thread in enumerate(process_data[17]):
             threads_treeview.insert('', tk.END, values=(thread[0], thread[1], thread[2], 
-                                                        thread[3], thread[4], thread[5]), 
+                                                        thread[3], f"{thread[4]:.2f}%", thread[5]), 
                                                         tags=("evenrow" if idx % 2 == 0 else "oddrow",))
         threads_treeview.grid(row=1, column=0, sticky='nsew')
 

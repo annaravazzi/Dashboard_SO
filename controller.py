@@ -36,11 +36,23 @@ class Controller:
         """
         try:
             processes = self.process_queue.get_nowait()
-            specific_processes = self.specific_process_queue.get_nowait()
-            general_stats = self.general_stats_queue.get_nowait()
-            self.view.update_data(processes, specific_processes, general_stats)
         except queue.Empty:
-            pass
+            processes = None
+        try:
+            specific_processes = self.specific_process_queue.get_nowait()
+        except queue.Empty:
+            specific_processes = None
+        try:
+            general_stats = self.general_stats_queue.get_nowait()
+        except queue.Empty:
+            general_stats = None
+        
+        # Se houver dados em pelo menos uma das queues, atualiza a View
+        # (se algum for nulo, a View toma conta de não atualizar a tela com ele)
+        if processes or specific_processes or general_stats:
+        # Atualiza a View com os dados recebidos do Model
+            self.view.update_data(processes, specific_processes, general_stats)
+
         # Agenda próxima checagem das queues
         self.view.root.after(100, self.queue_check)
 
