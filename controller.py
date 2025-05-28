@@ -4,59 +4,58 @@ import queue
 
 class Controller:
     """
-    Controller class to manage the interaction between the View and Model.
-    It initializes the model and view, starts the necessary threads, and handles the data flow betweem them.
+    Classe Controller para intermediar a interação entre View e Model.
+    Inicializa o Model e a View, inicia as threads e lida com o fluxo de dados.
     """
     def __init__(self):
-        # Queue for general process data (from model to view)
+        # Queue para lista de processos (Model -> View)
         self.process_queue = queue.Queue()
-        # Queue for specific process data (from model to view)
+        # Queue para processos especificos (Model -> View)
         self.specific_process_queue = queue.Queue()
-        # Queue for specific process requests (from view to model)
+        # Queue para requests de processos específicos (View -> Model)
         self.specific_process_req_queue = queue.Queue()
-        # Queue for general statistics data (from model to view)
+        # Queue para dados gerais de sistema (Model -> View)
         self.general_stats_queue = queue.Queue()
-        # Initialize the view and model
+
+        # Inicializa View e Model
         self.view = View(self.specific_process_req_queue)
         self.model = Model(self.process_queue, self.specific_process_queue, self.specific_process_req_queue, self.general_stats_queue)
-        # Start the model's threads to fetch data
+
+        # Inicia threads de data gathering
         self.model.start_processes_thread()
         self.model.start_specific_processes_thread()
-        # self.model.start_general_stats_thread()
-        # Schedule the queue check to update the view with data from the model
+        self.model.start_general_stats_thread()
+
+        # Agendar a checagem das queues para atualizar a View com os dados do Model
         self.queue_check()
 
     def queue_check(self):
         """
-        Check the queues using a non-blocking method (so the GUI stays active) to get new data and update the view.
-        This method is called periodically (100ms).
+        Checa as queues usando um método não-bloqueante (para a GUI permanecer ativa).
+        O método é chamado periodicamente (100ms).
         """
         try:
-            # Get data from the process queue, specific process queue and general stats queue
             processes = self.process_queue.get_nowait()
             specific_processes = self.specific_process_queue.get_nowait()
-            # general_stats = self.general_stats_queue.get_nowait()
-            self.view.update_data(processes, specific_processes)
-            # self.view.update_data(processes, specific_processes, general_stats)
+            general_stats = self.general_stats_queue.get_nowait()
+            self.view.update_data(processes, specific_processes, general_stats)
         except queue.Empty:
             pass
-        # Schedule the next queue check
+        # Agenda próxima checagem das queues
         self.view.root.after(100, self.queue_check)
 
     def run(self):
         """
-        Run the main loop of the view to start the GUI application.
-        This method will block until the GUI is closed.
+        Roda o loop principal da View. Fica bloqueado até a GUI ser fechada, então as threads do Model são fechadas.
         """
         self.view.run()
-        # Stop the model's threads when the GUI is closed
         self.stop_threads()
     
     def stop_threads(self):
         """
-        Stop the model's threads gracefully.
-        This method is called when the GUI is closed to ensure that all threads are stopped.
+        Para as threads do Model.
+        É chamado quando a GUI é fechada.
         """
         self.model.stop_processes_thread()
         self.model.stop_specific_processes_thread()
-        # self.model.stop_general_stats_thread()
+        self.model.stop_general_stats_thread()
