@@ -160,34 +160,6 @@ class View:
         
         self.general_stats_treeview.pack(fill=tk.BOTH, expand=True)
 
-        # # Treeview para a tabela
-        # self.general_stats_treeview = ttk.Treeview(general_stats_tab,
-        #                                       columns=('Field', 'Value'), show='', bootstyle='DARK')
-        # self.general_stats_treeview.heading('Field', text='Field', anchor='w')
-        # self.general_stats_treeview.heading('Value', text='Value', anchor='w')
-
-        # # Fields
-        # fields = ['Total Memory', 'Memory Usage', 'Total Swap', 'Swap Usage',
-        #           'Load Average', 'Uptime', 'CPU Usage', 'Number of Processes', 'Number of Threads']
-        # for field in fields:
-        #     self.general_stats_treeview.insert('', tk.END, values=(field, ''), 
-        #                                   tags=("evenrow" if fields.index(field) % 2 == 0 else "oddrow",
-        #                                         "expandable" if field == 'CPU Usage' else "static",))
-        
-        # # Linhas cores alternadas
-        # self.general_stats_treeview.tag_configure("evenrow", background="#222222")
-        # self.general_stats_treeview.tag_configure("oddrow", background="#303030")
-
-        # # Add scrollbar
-        # scrollbar = ttk.Scrollbar(general_stats_tab, orient=tk.VERTICAL, command=self.general_stats_treeview.yview)
-        # self.general_stats_treeview.configure(yscroll=scrollbar.set)
-        # self.general_stats_treeview.grid(row=0, column=0, sticky='nsew')
-        # scrollbar.grid(row=0, column=1, sticky='ns')
-
-        # # Pack the treeview
-        # general_stats_tab.grid_columnconfigure(0, weight=1)
-        # general_stats_tab.grid_rowconfigure(0, weight=1) 
-
     def create_specific_process_tab(self, event):
         """
         Cria uma aba para mostrar os detalhes de um processo específico.
@@ -298,12 +270,17 @@ class View:
         self.specific_process_data_dict = specific_process_data
         self.general_stats_data = general_stats_data
 
+        # Pega a aba ativa do notebook
+        active_tab = self.notebook.select()
+
         # Atualiza a lista de processos
-        if self.process_data_dict:
+        if active_tab == self.notebook.tabs()[0] and self.process_data_dict:
+            # Se a aba ativa for a lista de processos, atualiza a view
             self.update_process_list_view(list(self.process_data_dict.values()))
         
         # Atualiza a aba de dados gerais do sistema
-        if self.general_stats_data:
+        if active_tab == self.notebook.tabs()[1] and self.general_stats_data:
+            # Se a aba ativa for a aba de dados gerais do sistema, atualiza a view
             self.update_general_stats_view(self.general_stats_data)
 
         # Checa as abas abertas dos processos especificos
@@ -313,7 +290,7 @@ class View:
             for pid, tab_id in opened_tabs.items():
                 # Verifica se a entry no dict não é vazia (pode ser uma chave que existe, mas com tupla vazia)
                 # Se a entrada for uma tupla vazia, significa que o processo foi adicionado mas ainda não recebeu dados, então espera
-                if pid in self.specific_process_data_dict and self.specific_process_data_dict[pid]:
+                if str(active_tab) == str(tab_id) and pid in self.specific_process_data_dict and self.specific_process_data_dict[pid]:
                     # Se a entry for uma tupla com dados, atualiza a aba
                     if all(data is not None for data in self.specific_process_data_dict[pid]):
                         self.update_specific_process_tab(tab_id, self.specific_process_data_dict[pid])
@@ -333,20 +310,20 @@ class View:
         selected_item = self.process_list_tree.focus()
         selected_text = self.process_list_tree.item(selected_item) if selected_item else None
 
-        # Clear existing data
+        # Limpar dados existentes na treeview
         for item in self.process_list_tree.get_children():
             self.process_list_tree.delete(item)
 
-        # Insert new data
+        # Inserir novos dados na treeview
         for idx, process in enumerate(process_data):
             self.process_list_tree.insert('', tk.END, values=process, tags=("evenrow" if idx % 2 == 0 else "oddrow",))
-            # Restore the selection
+            # Se o processo selecionado for o mesmo que o texto selecionado, manter a seleção
             if selected_text and process[0] == selected_text['values'][0]:
                 self.process_list_tree.selection_set(self.process_list_tree.get_children()[idx])
                 self.process_list_tree.focus(self.process_list_tree.get_children()[idx])
                 self.process_list_tree.see(self.process_list_tree.get_children()[idx])
                 
-        # Restore the scroll position
+        # Atualizar a posição de rolagem
         self.process_list_tree.yview_moveto(current_position)
 
     def update_general_stats_view(self, general_data):
@@ -389,10 +366,6 @@ class View:
                                                               self.plot_graph_string(100, swap_usage)), 
                                                               tags=("oddrow",))
 
-        # self.memory_usage_treeview.item(self.memory_usage_treeview.get_children()[1],
-        #                                 values=('Swap', used_swap + "/" + total_swap, 
-        #                                         self.plot_graph_string(100, swap_usage)),
-        #                                 tags=("oddrow",))
         self.memory_usage_treeview.pack(fill=tk.BOTH, expand=True)
 
         # Atualizar a tabela de outros dados gerais do sistema
@@ -402,43 +375,9 @@ class View:
         for field, value in zip(fields, values):
             self.general_stats_treeview.insert('', tk.END, values=(field, value), 
                                                tags=("evenrow" if fields.index(field) % 2 == 0 else "oddrow",))
-            # self.general_stats_treeview.item(self.general_stats_treeview.get_children()[idx],
-            #                                  values=(field, value), 
-            #                                  tags=("evenrow" if idx % 2 == 0 else "oddrow",))
-        
+
         self.general_stats_treeview.pack(fill=tk.BOTH, expand=True)
 
-        # # Limpar dados existentes na treeview
-        # for item in self.general_stats_treeview.get_children():
-        #     self.general_stats_treeview.delete(item)
-
-        # # Insert new data
-        # fields = ['Total Memory', 'Memory Usage', 'Total Swap', 'Swap Usage',
-        #           'Load Average', 'Uptime', 'CPU Usage', 'Number of Processes', 'Number of Threads']
-        
-        # values = [general_data[0], general_data[1], general_data[2], general_data[3],
-        #           general_data[4], general_data[5], general_data[6][0][1], general_data[7], general_data[8]]
-        
-        # for field, value in zip(fields, values):
-        #     item = self.general_stats_treeview.insert('', tk.END, values=(field, value), 
-        #                                   tags=("evenrow" if fields.index(field) % 2 == 0 else "oddrow",
-        #                                         "expandable" if field == 'CPU Usage' else "static",))
-            
-        #     if self.cpu_usage_expanded and field == 'CPU Usage':
-        #         cpu_usage_data = [usage[1] for usage in general_data[6][1:]]
-        #         for idx, usage in enumerate(cpu_usage_data):
-        #             self.general_stats_treeview.insert(item, tk.END,
-        #                                                 values=(f"Core {idx}", f"{usage:.2f}%"),
-        #                                                 tags=("evenrow" if idx % 2 == 0 else "oddrow",))
-        #         self.general_stats_treeview.item(item, open=True)
-        
-        
-        # Update the treeview
-        # self.general_stats_treeview.grid(row=0, column=0, sticky='nsew')
-
-        
-
-    # TODO: add more specific data
     def update_specific_process_tab(self, tab_id, process_data):
         """
         Atualiza a aba de processo específico com os dados atuais.
@@ -476,21 +415,6 @@ class View:
                                         tags=("evenrow" if idx % 2 == 0 else "oddrow",))
         process_mem_treeview.pack(fill=tk.BOTH, expand=True)
 
-        # # Insert new data into the treeview
-        # fields = ['Name', 'Username', 'CPU(%)', 'Status', 'Number of Threads',
-        #           'Priority', 'Nice', 'Run Time (since boot)', 'Resident Set', 'Resident Set (pages)', 
-        #           'Virtual Memory', 'Virtual Memory (pages)', 'Text Segment Size', 'Data Segment Size',
-        #           'Stack Segment Size']
-        # values = [process_data[1], process_data[2], process_data[3], process_data[4], 
-        #             process_data[5], process_data[6], process_data[7], process_data[8], 
-        #             process_data[9], process_data[10], process_data[11], process_data[12], 
-        #             process_data[13], process_data[14], process_data[15]]
-        # for field, value in zip(fields, values):
-        #     process_data_treeview.insert('', tk.END, values=(field, value), 
-        #                                  tags=("evenrow" if fields.index(field) % 2 == 0 else "oddrow",))
-        # # Update the process data treeview
-        # process_data_treeview.pack(fill=tk.BOTH, expand=True)
-
         # Limpar dados existentes na treeview de threads
         threads_treeview = self.threads_treeviews[tab_id]
         for item in threads_treeview.get_children():
@@ -503,48 +427,6 @@ class View:
                                                         tags=("evenrow" if idx % 2 == 0 else "oddrow",))
         threads_treeview.grid(row=1, column=0, sticky='nsew')
 
-        # # # Clear existing data in the tab
-        # # for widget in tab.winfo_children():
-        # #     widget.destroy()
-
-        
-        # tab = self.notebook.nametowidget(tab_id)
-        # for widget in tab.winfo_children():
-        #     if isinstance(widget, tk.Text):
-        #         widget.destroy()
-        
-        # # Clear existing treeview in the tab
-
-        # # Add process details
-        # if process_data:
-        #     details_text = tk.Text(tab, wrap=tk.WORD)
-        #     details_text.insert(tk.END, f"Name: {process_data[1]}\n"
-        #                                 f"User: {process_data[2]}\n"
-        #                                 f"Memory: {process_data[3]}\n"
-        #                                 f"CPU: {process_data[4]}\n"
-        #                                 f"Status: {process_data[5]}")
-        #     details_text.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
-        #     details_text.config(state=tk.DISABLED)
-        # # else:
-        # #     # If the process is not available anymore
-        # #     old_pid = self.notebook.tab(tab, ('text')).split(" ")[1]
-        # #     self.close_tab(tab, old_pid, req=False)
-        # #     # self.error_box(tab, "Process " + str(old_pid) + "doesn't exist anymore", old_pid)
-
-
-        # self.update_specific_process_tab(details_tab, process_info)
-
-        # # Add process details
-        # details_text = tk.Text(details_tab, wrap=tk.WORD)
-        # details_text.insert(tk.END, f"Name: {process_info[1]}\n"
-        #                               f"User: {process_info[2]}\n"
-        #                               f"Memory: {process_info[3]}\n"
-        #                               f"CPU: {process_info[4]}\n"
-        #                               f"Status: {process_info[5]}")
-        # details_text.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
-        # details_text.config(state=tk.DISABLED)
-
-        # Add close button
 
     def close_tab(self, tab, pid, req=True):
         """
@@ -557,7 +439,7 @@ class View:
         self.processes_opened_tabs.pop(pid, None)
         try:
             self.notebook.forget(tab)
-        except tk.TclError:
+        except:
             return
         
     def toggle_cpu_row(self, event):
@@ -569,42 +451,16 @@ class View:
         item = self.cpu_usage_treeview.identify_row(event.y)
 
         if item and (region == 'cell' or region == 'heading'):
-                # Toggle the expand/collapse state
+                # Toggle do estado de expansão da linha de uso de CPU
                 if not self.cpu_usage_expanded:
                     self.cpu_usage_expanded = True
-                    # # Insert children with CPU usage data for each core
-                    # cpu_usage_data = self.general_stats_data[6][1:] if self.general_stats_data else []
-                    # for idx, usage in enumerate(cpu_usage_data):
-                    #     self.general_stats_treeview.insert(
-                    #         item, tk.END,
-                    #         values=(f"Core {idx}", f"{usage:.2f}%"),
-                    #         tags=("evenrow" if idx % 2 == 0 else "oddrow",)
-                    #     )
                     self.cpu_usage_treeview.item(item, open=True)          
                 else:
                     self.cpu_usage_expanded = False
-                    # Remove children from the CPU usage row
+                    # Removeer os filhos da linha de uso de CPU
                     for child in self.cpu_usage_treeview.get_children(item):
                         self.cpu_usage_treeview.delete(child)
                     self.cpu_usage_treeview.item(item, open=False)
-        
-        # item = self.general_stats_treeview.focus()
-        # if not item:
-        #     return
-        # tags = self.general_stats_treeview.item(item, "tags")
-        # if "expandable" in tags:
-        #     # Clear existing children
-        #     for child in self.general_stats_treeview.get_children(item):
-        #         self.general_stats_treeview.delete(child)
-        #     # Insert new children with CPU usage data for each core
-        #     if self.general_stats_data:
-        #         cpu_usage_data = self.general_stats_data[6][1:]
-        #         for idx, usage in enumerate(cpu_usage_data):
-        #             self.general_stats_treeview.insert(
-        #                 item, tk.END,
-        #                 values=(f"Core {idx}", f"{usage:.2f}%"),
-        #                 tags=("evenrow" if idx % 2 == 0 else "oddrow",)
-        #             )
 
     def plot_graph_string(self, total, used, blocks=100):
         """

@@ -225,7 +225,7 @@ class Model:
 
                     # Adiciona os dados do processo ao dicionário
                     self._processes_dict[pid] = (pid, name, username, priority, memory, cpu_usage, status)
-                except FileNotFoundError:
+                except:
                     # Processo foi encerrado, não será incluído
                     continue
         return self._processes_dict
@@ -314,7 +314,7 @@ class Model:
                                                         resident_mem, shared_mem, textsize, datasize, stacksize,
                                                         threads)
                 
-            except FileNotFoundError:
+            except:
                 # Processo foi encerrado, será preenchido com tupla nula
                 self._specific_processes_dict[pid] = (None, None, None, None, None, None, None, None, None, None, 
                                                       None, None, None, None, None, None, None, None)
@@ -355,7 +355,7 @@ class Model:
 
                     # Adiciona os dados da thread à lista
                     threads.append((tid, name, username, memory, cpu_usage, status))
-                except FileNotFoundError:
+                except:
                     # Thread foi encerrada, não será incluída
                     continue
         return threads
@@ -420,7 +420,7 @@ class Model:
             # Adiciona os dados gerais do sistema à lista
             self._general_stats_list = [total_memory, used_memory, memory_usage, total_swap, used_swap,
                                         swap_usage, cpu_usage, num_procs, num_threads, load_avg, uptime]
-        except FileNotFoundError:
+        except:
             pass
 
         return self._general_stats_list
@@ -435,7 +435,7 @@ class Model:
                     if str(uid) in line:
                         return line.split(":")[0]
             return str(uid)
-        except FileNotFoundError:
+        except:
             return str(uid)
     
     def _get_process_status(self, status):
@@ -512,7 +512,7 @@ class Model:
                 cpu_usage.append((cpu[0], round(usage, 2)))
                 if not cpu_usage:
                     return []
-        except FileNotFoundError:
+        except:
             return []
         
         return cpu_usage
@@ -531,7 +531,7 @@ class Model:
                     with open(f"/proc/{entry}/stat", "r") as f:
                         data = f.read().split()
                         total_threads += int(data[19])
-                except FileNotFoundError:
+                except:
                     continue
         return total_procs, total_threads
     
